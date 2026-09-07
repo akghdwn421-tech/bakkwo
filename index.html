@@ -74,6 +74,8 @@ h2.tt{font-size:29px;font-weight:800;letter-spacing:-.04em;margin:10px 0 4px;lin
 .nr b{font-weight:700;font-variant-numeric:tabular-nums}
 .nr.zero b{color:var(--sub);font-weight:500}
 
+.swapwrap{margin-top:22px}
+.sh{font-size:19px;font-weight:800;letter-spacing:-.03em;margin-bottom:10px}
 .swapbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0 18px;
   padding:14px 16px;background:var(--soft);border-radius:12px}
 .swapbar select{padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--card)}
@@ -215,60 +217,72 @@ function viewFood(id){
    '<h2 class="tt">'+esc(f[1])+'</h2>'+
    '<div class="meta">'+esc(DB.groups[f[0]])+(f[2]?' · 출처 '+esc(f[2]):'')+'</div>'+
    '<div class="tools">'+
-     '<button class="btn p" data-swap="'+id+'">바꿔먹기</button>'+
      '<button class="btn" data-sel="'+id+'">'+(inSel?'비교에서 빼기':'비교에 담기')+' ('+sel.length+')</button>'+
      '<div class="amt">섭취량 <input id="amt" type="number" min="1" max="2000" value="'+amt+'"> g</div>'+
    '</div>'+
-   '<div class="note">아래 수치는 <b>'+amt+'g</b> 기준입니다. 원본 DB는 가식부 100g 기준으로 제공됩니다.</div>'+
+   swapBlock(id, 8, true)+'<h3 class="sh" style="margin-top:34px">성분 전체</h3>'+'<div class="note">아래 수치는 <b>'+amt+'g</b> 기준입니다. 원본 DB는 가식부 100g 기준으로 제공됩니다.</div>'+
    body+'<div style="height:40px"></div></div>';
 }
 
 /* ---------- 바꿔먹기 ---------- */
 var swapCi=21, swapDir='down';
-function viewSwap(id){
-  var f=DB.foods[id]; if(!f) return '<div class="wrap"><div class="empty">없는 식품입니다.</div></div>';
-  var base=val(f,swapCi);
-  var e0=val(f,C_ENERGY);
-  var cands=[];
+function swapList(id, limit){
+  var f=DB.foods[id];
+  var base=val(f,swapCi), e0=val(f,C_ENERGY), cands=[];
   if(base!==null){
     for(var i=0;i<DB.foods.length;i++){
       if(i===id) continue;
       var g=DB.foods[i];
-      if(g[0]!==f[0]) continue;                       // 같은 식품군 안에서만
+      if(g[0]!==f[0]) continue;
       var v=val(g,swapCi); if(v===null) continue;
       var e=val(g,C_ENERGY);
-      if(e0!==null && e!==null && e0>0 && Math.abs(e-e0)/e0>0.4) continue;  // 열량이 비슷한 것
+      if(e0!==null && e!==null && e0>0 && Math.abs(e-e0)/e0>0.4) continue;
       if(swapDir==='down' ? v<base : v>base) cands.push([i,v]);
     }
   }
   cands.sort(function(a,b){return swapDir==='down' ? a[1]-b[1] : b[1]-a[1];});
-  cands=cands.slice(0,12);
-  var opts=SWAPS.map(function(s){
+  return {base:base, total:cands.length, list:cands.slice(0,limit)};
+}
+function swapOptions(){
+  return SWAPS.map(function(s){
     return '<optgroup label="'+s.k+'">'+s.items.map(function(it){
-      var v=(s.k==='낮추기'?'down':'up')+':'+it[0];
-      var on=(swapCi===it[0] && swapDir===(s.k==='낮추기'?'down':'up'))?' selected':'';
-      return '<option value="'+v+'"'+on+'>'+esc(it[1])+' '+(s.k==='낮추기'?'낮추기':'높이기')+'</option>';
+      var dir=(s.k==='낮추기'?'down':'up');
+      var on=(swapCi===it[0] && swapDir===dir)?' selected':'';
+      return '<option value="'+dir+':'+it[0]+'"'+on+'>'+esc(it[1])+' '+s.k+'</option>';
     }).join('')+'</optgroup>';
   }).join('');
-  var rows = base===null
-    ? '<div class="empty">이 식품에는 해당 성분 측정값이 없어 비교할 수 없습니다.</div>'
-    : (cands.length ? cands.map(function(c){
-        var g=DB.foods[c[0]];
-        var d = base>0 ? Math.round((c[1]-base)/base*100) : null;
-        var cls = swapDir==='down' ? 'd' : 'u';
-        return '<button class="item" data-id="'+c[0]+'"><div class="nm">'+esc(g[1])+
-          '<span>'+fmt(val(g,C_ENERGY))+'kcal / 100g</span></div>'+
-          '<div class="kv"><b>'+fmt(c[1])+'</b>'+esc(DB.cols[swapCi].u)+'</div>'+
-          '<div class="kv"><span class="delta '+cls+'">'+(d===null?'':(d>0?'+':'')+d+'%')+'</span></div></button>';
-      }).join('') : '<div class="empty">조건에 맞는 대체 식품을 찾지 못했습니다.</div>');
+}
+function swapRows(r){
+  if(r.base===null) return '<div class="empty">이 식품에는 해당 성분 측정값이 없어 비교할 수 없습니다.</div>';
+  if(!r.list.length) return '<div class="empty">조건에 맞는 대체 식품을 찾지 못했습니다. 위에서 다른 성분을 골라 보세요.</div>';
+  var cls = swapDir==='down' ? 'd' : 'u';
+  return r.list.map(function(c){
+    var g=DB.foods[c[0]];
+    var d = r.base>0 ? Math.round((c[1]-r.base)/r.base*100) : null;
+    return '<button class="item" data-id="'+c[0]+'"><div class="nm">'+esc(g[1])+
+      '<span>'+fmt(val(g,C_ENERGY))+'kcal / 100g</span></div>'+
+      '<div class="kv"><b>'+fmt(c[1])+'</b>'+esc(DB.cols[swapCi].u)+'</div>'+
+      '<div class="kv"><span class="delta '+cls+'">'+(d===null?'':(d>0?'+':'')+d+'%')+'</span></div></button>';
+  }).join('');
+}
+function swapBlock(id, limit, more){
+  var f=DB.foods[id], r=swapList(id,limit);
+  return '<div class="swapwrap"><h3 class="sh">무엇으로 바꿀까</h3>'+
+    '<div class="swapbar"><select id="swapsel">'+swapOptions()+'</select>'+
+    '<span style="font-size:14px;color:var(--sub)">기준 '+esc(DB.cols[swapCi].n)+' '+
+    fmt(r.base)+(r.base===null?'':esc(DB.cols[swapCi].u))+' · 같은 식품군 · 열량 ±40% 이내</span></div>'+
+    '<div class="list">'+swapRows(r)+'</div>'+
+    (more && r.total>limit ? '<button class="btn" style="margin-top:12px" data-swap="'+id+'">대체 식품 '+r.total+'건 모두 보기</button>' : '')+
+    '</div>';
+}
+function viewSwap(id){
+  var f=DB.foods[id]; if(!f) return '<div class="wrap"><div class="empty">없는 식품입니다.</div></div>';
   return '<div class="wrap">'+
    '<div class="crumb"><button data-food="'+id+'">← '+esc(f[1])+'</button></div>'+
    '<h2 class="tt">무엇으로 바꿀까</h2>'+
    '<div class="meta">'+esc(f[1])+' · '+esc(DB.groups[f[0]])+'</div>'+
-   '<div class="swapbar"><select id="swapsel">'+opts+'</select>'+
-   '<span style="font-size:14px;color:var(--sub)">기준 '+esc(DB.cols[swapCi].n)+' '+
-   fmt(base)+esc(DB.cols[swapCi].u)+' · 같은 식품군 · 열량 ±40% 이내</span></div>'+
-   '<div class="list">'+rows+'</div><div style="height:40px"></div></div>';
+   '<div style="height:14px"></div>'+
+   swapBlock(id, 40, false)+'<div style="height:40px"></div></div>';
 }
 
 /* ---------- 비교 ---------- */
